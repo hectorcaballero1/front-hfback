@@ -16,6 +16,10 @@
   --sidebar-w: 56px;
   --header-h:  52px;
   --radius:    6px;
+
+  --panel-open-dur:  320ms;
+  --panel-close-dur: 220ms;
+  --panel-ease:      cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* ─── Reset ────────────────────────────────────────────────────────────────── */
@@ -77,9 +81,31 @@ html, body {
   100% { transform: translateX(100%); }
 }
 
+@keyframes overlay-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes overlay-exit {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes panel-enter {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes panel-exit {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .value--pulse { animation: none; }
-  .row--pulse   { animation: none; }
+  .value--pulse            { animation: none; }
+  .row--pulse              { animation: none; }
+  .polling-dot.active      { animation: none; }
+  .detail-overlay,
+  .detail-overlay.is-closing,
+  .detail-panel,
+  .detail-panel.is-closing { animation: none; }
 }
 
 /* ─── Utility ──────────────────────────────────────────────────────────────── */
@@ -537,7 +563,12 @@ tbody td {
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
   z-index: 200;
+  animation: overlay-enter var(--panel-open-dur) var(--panel-ease) forwards;
 }
+.detail-overlay.is-closing {
+  animation: overlay-exit var(--panel-close-dur) var(--panel-ease) forwards;
+}
+
 .detail-panel {
   position: fixed;
   top: 0; right: 0; bottom: 0;
@@ -549,6 +580,10 @@ tbody td {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: panel-enter var(--panel-open-dur) var(--panel-ease) forwards;
+}
+.detail-panel.is-closing {
+  animation: panel-exit var(--panel-close-dur) var(--panel-ease) forwards;
 }
 .detail-panel__header {
   padding: 18px 20px;

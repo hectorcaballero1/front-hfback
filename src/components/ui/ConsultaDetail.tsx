@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { api } from '../../api/client';
 import type { Consulta } from '../../types';
 import { VeredictoChip } from './Chip';
+
+const CLOSE_DUR = 220; // matches --panel-close-dur
 
 function fmt(iso: string) {
   try {
@@ -26,6 +28,20 @@ export default function ConsultaDetail({ consultaId, tenantId, initial, onClose 
   const [consulta, setConsulta] = useState<Consulta | null>(initial ?? null);
   const [loading, setLoading] = useState(!initial);
   const [error, setError] = useState<string | null>(null);
+  const [isClosing, setIsClosing] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleClose = () => {
+    if (isClosing) return;
+    setIsClosing(true);
+    timerRef.current = setTimeout(onClose, CLOSE_DUR);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (initial) return;
@@ -36,15 +52,23 @@ export default function ConsultaDetail({ consultaId, tenantId, initial, onClose 
   }, [consultaId, tenantId, initial]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [isClosing]);
 
   return (
     <>
-      <div className="detail-overlay" onClick={onClose} />
-      <aside className="detail-panel" role="dialog" aria-label="Detalle de consulta">
+      <div
+        className={`detail-overlay${isClosing ? ' is-closing' : ''}`}
+        onClick={handleClose}
+      />
+      <aside
+        className={`detail-panel${isClosing ? ' is-closing' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Detalle de consulta"
+      >
         <header className="detail-panel__header">
           <div>
             <div className="detail-field__label" style={{ marginBottom: 2 }}>Detalle</div>
@@ -52,7 +76,7 @@ export default function ConsultaDetail({ consultaId, tenantId, initial, onClose 
               {consultaId}
             </span>
           </div>
-          <button className="detail-close" onClick={onClose} aria-label="Cerrar">
+          <button className="detail-close" onClick={handleClose} aria-label="Cerrar">
             <X size={16} />
           </button>
         </header>
