@@ -116,6 +116,8 @@ export default function EnVivo({ onPollingStatus }: Props) {
   const activeRef = useRef(true);
 
   useEffect(() => {
+    // Local flag per effect invocation — immune to the next effect resetting activeRef
+    let active = true;
     activeRef.current = true;
     procRef.current = new Map();
     pendRef.current = new Map();
@@ -139,7 +141,7 @@ export default function EnVivo({ onPollingStatus }: Props) {
           api.getConsultas({ tenantId: tenant, estado: 'pendiente', limit: 10 }),
         ]);
 
-        if (!activeRef.current) return;
+        if (!active) return;
 
         setError(null);
         onPollingStatus('polling');
@@ -151,7 +153,7 @@ export default function EnVivo({ onPollingStatus }: Props) {
         if (departed.length > 0) {
           Promise.all(departed.map(id => api.getConsulta(id, tenant).catch(() => null)))
             .then(results => {
-              if (!activeRef.current) return;
+              if (!active) return;
               results.forEach(c => {
                 if (!c) return;
                 const event: ToastEvent & ActivityEntry = {
@@ -188,7 +190,7 @@ export default function EnVivo({ onPollingStatus }: Props) {
 
         if (changed.size > 0) {
           setChangedIds(changed);
-          setTimeout(() => { if (activeRef.current) setChangedIds(new Set()); }, 400);
+          setTimeout(() => { if (active) setChangedIds(new Set()); }, 400);
         }
 
         const isDone = newStats.estados.pendiente + newStats.estados.procesando === 0;
@@ -200,7 +202,7 @@ export default function EnVivo({ onPollingStatus }: Props) {
           timer = setTimeout(poll, 1500);
         }
       } catch (e) {
-        if (!activeRef.current) return;
+        if (!active) return;
         setError(e instanceof Error ? e.message : 'Error de red');
         onPollingStatus('error');
         timer = setTimeout(poll, 3000);
@@ -210,6 +212,7 @@ export default function EnVivo({ onPollingStatus }: Props) {
     poll();
 
     return () => {
+      active = false;
       activeRef.current = false;
       clearTimeout(timer);
       onPollingStatus('idle');

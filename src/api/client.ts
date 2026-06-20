@@ -35,11 +35,11 @@ export const api = {
       `/consultas/${encodeURIComponent(id)}?tenantId=${encodeURIComponent(tenantId)}`,
     ),
 
-  presign: (tenantId: string) =>
+  presign: (tenantId: string, tipo: 'consultas' | 'documentos' = 'consultas') =>
     fetch(`${BASE}/uploads/presign`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantId }),
+      body: JSON.stringify({ tenantId, tipo }),
     }).then(async r => {
       if (!r.ok) throw new Error(`Presign falló: ${r.status} ${r.statusText}`);
       return r.json() as Promise<{ uploadUrl: string; key: string }>;
