@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { X, FileText } from 'lucide-react';
 import { api } from '../../api/client';
 import type { Consulta } from '../../types';
 import { VeredictoChip } from './Chip';
 
-const CLOSE_DUR = 220; // matches --panel-close-dur
+const CLOSE_DUR = 220;
 
 function fmt(iso: string) {
   try {
@@ -37,11 +37,7 @@ export default function ConsultaDetail({ consultaId, tenantId, initial, onClose 
     timerRef.current = setTimeout(onClose, CLOSE_DUR);
   };
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
   useEffect(() => {
     if (initial) return;
@@ -57,12 +53,11 @@ export default function ConsultaDetail({ consultaId, tenantId, initial, onClose 
     return () => window.removeEventListener('keydown', onKey);
   }, [isClosing]);
 
+  const isRag = consulta?.veredicto === 'respondido_rag';
+
   return (
     <>
-      <div
-        className={`detail-overlay${isClosing ? ' is-closing' : ''}`}
-        onClick={handleClose}
-      />
+      <div className={`detail-overlay${isClosing ? ' is-closing' : ''}`} onClick={handleClose} />
       <aside
         className={`detail-panel${isClosing ? ' is-closing' : ''}`}
         role="dialog"
@@ -72,9 +67,7 @@ export default function ConsultaDetail({ consultaId, tenantId, initial, onClose 
         <header className="detail-panel__header">
           <div>
             <div className="detail-field__label" style={{ marginBottom: 2 }}>Detalle</div>
-            <span className="mono" style={{ fontSize: 12, color: 'var(--accent)' }}>
-              {consultaId}
-            </span>
+            <span className="mono" style={{ fontSize: 12, color: 'var(--accent)' }}>{consultaId}</span>
           </div>
           <button className="detail-close" onClick={handleClose} aria-label="Cerrar">
             <X size={16} />
@@ -82,62 +75,89 @@ export default function ConsultaDetail({ consultaId, tenantId, initial, onClose 
         </header>
 
         <div className="detail-panel__body">
-          {loading && (
-            <p style={{ color: 'var(--muted)', fontSize: 13 }}>Cargando...</p>
-          )}
-          {error && (
-            <div className="error-banner">{error}</div>
-          )}
+          {loading && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Cargando...</p>}
+          {error && <div className="error-banner">{error}</div>}
+
           {consulta && (
             <>
-              <div className="detail-field">
-                <div className="detail-field__label">Texto</div>
-                <div className="detail-field__value">{consulta.texto}</div>
-              </div>
-
-              <div className="detail-field">
-                <div className="detail-field__label">Remitente</div>
-                <div className="detail-field__value mono">{consulta.remitente}</div>
-              </div>
-
-              <div className="detail-field">
-                <div className="detail-field__label">Veredicto</div>
-                <div className="detail-field__value">
-                  <VeredictoChip veredicto={consulta.veredicto} />
-                  {!consulta.veredicto && <span style={{ color: 'var(--muted)' }}>—</span>}
-                </div>
-              </div>
-
-              {consulta.veredicto === 'respondido_rag' && consulta.respuesta && (
-                <div className="detail-field">
-                  <div className="detail-field__label">Respuesta RAG</div>
-                  <div
-                    className="detail-field__value"
-                    style={{
-                      background: 'var(--bg)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--radius)',
-                      padding: '10px 12px',
-                      lineHeight: 1.7,
-                    }}
-                  >
-                    {consulta.respuesta}
-                  </div>
-                  {consulta.fuente && (
-                    <div style={{ marginTop: 6 }}>
-                      <span className="chip chip--rag">
-                        Fuente: {consulta.fuente}
-                      </span>
+              {/* ── RAG: ficha de caso ─────────────────────────────── */}
+              {isRag && consulta.respuesta ? (
+                <>
+                  <div className="rag-card">
+                    <div className="rag-card__section">
+                      <div className="detail-field__label">Consulta</div>
+                      <p className="rag-card__question">{consulta.texto}</p>
                     </div>
-                  )}
-                </div>
+
+                    <div className="rag-card__divider" />
+
+                    <div className="rag-card__section">
+                      <div className="detail-field__label">Respuesta</div>
+                      <p className="rag-card__answer">{consulta.respuesta}</p>
+                    </div>
+
+                    {(consulta.fuente || consulta.fragmento) && (
+                      <div className="rag-card__evidence">
+                        <div className="detail-field__label">Basado en</div>
+                        {consulta.fuente && (
+                          <div className="rag-card__source">
+                            <FileText size={11} />
+                            {consulta.fuente}
+                          </div>
+                        )}
+                        {consulta.fragmento && (
+                          <blockquote className="rag-card__fragment">
+                            {consulta.fragmento}
+                          </blockquote>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="detail-field">
+                    <div className="detail-field__label">Remitente</div>
+                    <div className="detail-field__value mono">{consulta.remitente}</div>
+                  </div>
+                </>
+              ) : (
+                /* ── Resto de veredictos: layout estándar ────────── */
+                <>
+                  <div className="detail-field">
+                    <div className="detail-field__label">Texto</div>
+                    <div className="detail-field__value">{consulta.texto}</div>
+                  </div>
+
+                  <div className="detail-field">
+                    <div className="detail-field__label">Remitente</div>
+                    <div className="detail-field__value mono">{consulta.remitente}</div>
+                  </div>
+
+                  <div className="detail-field">
+                    <div className="detail-field__label">Veredicto</div>
+                    <div className="detail-field__value">
+                      <VeredictoChip veredicto={consulta.veredicto} />
+                      {!consulta.veredicto && <span style={{ color: 'var(--muted)' }}>—</span>}
+                    </div>
+                  </div>
+                </>
               )}
 
+              {/* Área enrutada */}
               {consulta.veredicto === 'enrutado' && consulta.area && (
                 <div className="detail-field">
                   <div className="detail-field__label">Área asignada</div>
                   <div className="detail-field__value">
                     <span className="chip chip--enrutado">{consulta.area}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Veredicto chip para RAG (fuera de la ficha, como referencia rápida) */}
+              {isRag && (
+                <div className="detail-field">
+                  <div className="detail-field__label">Veredicto</div>
+                  <div className="detail-field__value">
+                    <VeredictoChip veredicto={consulta.veredicto} />
                   </div>
                 </div>
               )}
@@ -153,15 +173,11 @@ export default function ConsultaDetail({ consultaId, tenantId, initial, onClose 
 
               <div className="detail-field">
                 <div className="detail-field__label">Recibida</div>
-                <div className="detail-field__value mono" style={{ fontSize: 12 }}>
-                  {fmt(consulta.timestamp)}
-                </div>
+                <div className="detail-field__value mono" style={{ fontSize: 12 }}>{fmt(consulta.timestamp)}</div>
               </div>
               <div className="detail-field">
                 <div className="detail-field__label">Actualizada</div>
-                <div className="detail-field__value mono" style={{ fontSize: 12 }}>
-                  {fmt(consulta.updatedAt)}
-                </div>
+                <div className="detail-field__value mono" style={{ fontSize: 12 }}>{fmt(consulta.updatedAt)}</div>
               </div>
             </>
           )}
