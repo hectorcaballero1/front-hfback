@@ -1,6 +1,6 @@
 export type Estado = 'pendiente' | 'procesando' | 'resuelto' | 'fallido';
 export type Veredicto = 'respondido_rag' | 'enrutado' | 'no_aplica';
-export type View = 'landing' | 'envivo' | 'procesados' | 'bandeja';
+export type View = 'landing' | 'envivo' | 'bandeja' | 'corpus' | 'procesados';
 
 export interface Tenant {
   tenantId: string;

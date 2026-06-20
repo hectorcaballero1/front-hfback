@@ -3,7 +3,6 @@ import { useTenant } from '../../context/TenantContext';
 import { api } from '../../api/client';
 import type { Consulta, Stats, Veredicto } from '../../types';
 import PulseValue from '../ui/PulseValue';
-import ToastStack, { type ToastEvent } from '../ui/ToastStack';
 
 interface Props {
   onPollingStatus: (s: 'idle' | 'polling' | 'error') => void;
@@ -16,24 +15,11 @@ interface ActivityEntry {
   estado: 'resuelto' | 'fallido';
   area: string | null;
   time: Date;
-}
-
-function fmt(iso: string) {
-  try { return new Date(iso).toLocaleTimeString('es-PE'); }
-  catch { return iso; }
+  texto: string;
 }
 
 function fmtTime(d: Date) {
   return d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function verdictLabel(e: ActivityEntry) {
-  if (e.estado === 'fallido') return 'falló';
-  switch (e.veredicto) {
-    case 'respondido_rag': return 'RAG';
-    case 'enrutado':       return e.area ? `enrutado → ${e.area}` : 'enrutado';
-    default:               return 'no aplica';
-  }
 }
 
 function verdictColor(e: ActivityEntry) {
@@ -45,7 +31,16 @@ function verdictColor(e: ActivityEntry) {
   }
 }
 
-// SVG donut — 3 segments stacked via stroke rotation
+function verdictLabel(e: ActivityEntry) {
+  if (e.estado === 'fallido') return 'falló';
+  switch (e.veredicto) {
+    case 'respondido_rag': return 'RAG';
+    case 'enrutado':       return e.area ? `enrutado → ${e.area}` : 'enrutado';
+    default:               return 'no aplica';
+  }
+}
+
+// SVG donut chart
 function VeredictDonut({ rag, enrutado, noAplica }: { rag: number; enrutado: number; noAplica: number }) {
   const total = rag + enrutado + noAplica;
   if (total === 0) return null;
@@ -92,10 +87,23 @@ function VeredictDonut({ rag, enrutado, noAplica }: { rag: number; enrutado: num
             <span className="mono" style={{ color: s.color, fontWeight: 600 }}>{s.value}</span>
           </div>
         ))}
-        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
-          total {total}
-        </div>
+        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>total {total}</div>
       </div>
+    </div>
+  );
+}
+
+// Stat card for throughput / rate metrics
+function MetricCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>
+        {label}
+      </div>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, lineHeight: 1, color: color ?? 'var(--text)' }}>
+        {value}
+      </div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
@@ -103,31 +111,20 @@ function VeredictDonut({ rag, enrutado, noAplica }: { rag: number; enrutado: num
 export default function EnVivo({ onPollingStatus }: Props) {
   const { activeTenant } = useTenant();
   const [stats, setStats] = useState<Stats | null>(null);
-  const [procesando, setProcesando] = useState<Consulta[]>([]);
-  const [pendiente, setPendiente] = useState<Consulta[]>([]);
-  const [changedIds, setChangedIds] = useState<Set<string>>(new Set());
+  const [, setChangedIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const [toasts, setToasts] = useState<ToastEvent[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
 
   const procRef = useRef<Map<string, Consulta>>(new Map());
-  const pendRef = useRef<Map<string, Consulta>>(new Map());
-  const activeRef = useRef(true);
+  const startTimeRef = useRef<Date>(new Date());
 
   useEffect(() => {
-    // Local flag per effect invocation — immune to the next effect resetting activeRef
     let active = true;
-    activeRef.current = true;
     procRef.current = new Map();
-    pendRef.current = new Map();
+    startTimeRef.current = new Date();
     setStats(null);
-    setProcesando([]);
-    setPendiente([]);
     setChangedIds(new Set());
     setError(null);
-    setDone(false);
-    setToasts([]);
     setActivity([]);
 
     let timer: ReturnType<typeof setTimeout>;
@@ -135,18 +132,16 @@ export default function EnVivo({ onPollingStatus }: Props) {
 
     const poll = async () => {
       try {
-        const [newStats, newProc, newPend] = await Promise.all([
+        const [newStats, newProc] = await Promise.all([
           api.getStats(tenant),
-          api.getConsultas({ tenantId: tenant, estado: 'procesando', limit: 5 }),
-          api.getConsultas({ tenantId: tenant, estado: 'pendiente', limit: 10 }),
+          api.getConsultas({ tenantId: tenant, estado: 'procesando', limit: 10 }),
         ]);
-
         if (!active) return;
 
         setError(null);
         onPollingStatus('polling');
 
-        // Detect consultas that left procesando
+        // Departed → add to activity feed
         const newProcIds = new Set(newProc.items.map(c => c.consultaId));
         const departed = [...procRef.current.keys()].filter(id => !newProcIds.has(id));
 
@@ -156,51 +151,36 @@ export default function EnVivo({ onPollingStatus }: Props) {
               if (!active) return;
               results.forEach(c => {
                 if (!c) return;
-                const event: ToastEvent & ActivityEntry = {
+                setActivity(prev => [{
                   id: crypto.randomUUID(),
                   consultaId: c.consultaId,
                   veredicto: c.veredicto,
                   estado: c.estado as 'resuelto' | 'fallido',
                   area: c.area,
                   time: new Date(),
-                };
-                setToasts(prev => [...prev, event]);
-                setActivity(prev => [event, ...prev].slice(0, 15));
+                  texto: c.texto,
+                }, ...prev].slice(0, 20));
               });
             });
         }
 
-        // Detect changed items for pulse
+        // Pulse
         const changed = new Set<string>();
         for (const c of newProc.items) {
           const prev = procRef.current.get(c.consultaId);
           if (!prev || prev.updatedAt !== c.updatedAt) changed.add(c.consultaId);
         }
-        for (const c of newPend.items) {
-          const prev = pendRef.current.get(c.consultaId);
-          if (!prev || prev.updatedAt !== c.updatedAt) changed.add(c.consultaId);
-        }
-
         procRef.current = new Map(newProc.items.map(c => [c.consultaId, c]));
-        pendRef.current = new Map(newPend.items.map(c => [c.consultaId, c]));
 
         setStats(newStats);
-        setProcesando(newProc.items);
-        setPendiente(newPend.items);
-
         if (changed.size > 0) {
           setChangedIds(changed);
           setTimeout(() => { if (active) setChangedIds(new Set()); }, 400);
         }
 
         const isDone = newStats.estados.pendiente + newStats.estados.procesando === 0;
-        if (isDone) {
-          setDone(true);
-          onPollingStatus('idle');
-        } else {
-          setDone(false);
-          timer = setTimeout(poll, 1500);
-        }
+        onPollingStatus(isDone ? 'idle' : 'polling');
+        timer = setTimeout(poll, 1500);
       } catch (e) {
         if (!active) return;
         setError(e instanceof Error ? e.message : 'Error de red');
@@ -210,10 +190,8 @@ export default function EnVivo({ onPollingStatus }: Props) {
     };
 
     poll();
-
     return () => {
       active = false;
-      activeRef.current = false;
       clearTimeout(timer);
       onPollingStatus('idle');
     };
@@ -221,39 +199,22 @@ export default function EnVivo({ onPollingStatus }: Props) {
 
   const estados = stats?.estados ?? { pendiente: 0, procesando: 0, resuelto: 0, fallido: 0 };
   const total = stats?.total ?? 0;
-  const resueltosPct = total > 0 ? (estados.resuelto / total) * 100 : 0;
   const veredictos = stats?.veredictos ?? { respondido_rag: 0, enrutado: 0, no_aplica: 0 };
+  const resueltosPct = total > 0 ? Math.round((estados.resuelto / total) * 100) : 0;
+  const ragPct = veredictos.respondido_rag + veredictos.enrutado + veredictos.no_aplica > 0
+    ? Math.round((veredictos.respondido_rag / (veredictos.respondido_rag + veredictos.enrutado + veredictos.no_aplica)) * 100)
+    : 0;
 
   return (
     <div>
-      <ToastStack events={toasts} onRemove={id => setToasts(p => p.filter(t => t.id !== id))} />
-
-      <h1 className="page-title">En vivo</h1>
+      <h1 className="page-title">Dashboard</h1>
 
       {error && (
-        <div className="error-banner" role="alert">
-          {error} · reintentando...
-        </div>
+        <div className="error-banner" role="alert">{error} · reintentando...</div>
       )}
 
-      {done && !error && (
-        <div
-          style={{
-            background: 'var(--accent-dim)',
-            border: '1px solid var(--accent)',
-            borderRadius: 'var(--radius)',
-            padding: '10px 14px',
-            color: 'var(--accent)',
-            fontSize: 13,
-            marginBottom: 16,
-          }}
-        >
-          Cola drenada · {estados.resuelto} consultas resueltas
-        </div>
-      )}
-
-      {/* Contadores */}
-      <div className="counters-grid">
+      {/* ── Counter cards ─────────────────────────────────────────────── */}
+      <div className="counters-grid" style={{ marginBottom: 24 }}>
         <div className="counter-card counter-card--pendiente">
           <div className="counter-card__label">Pendiente</div>
           <div className="counter-card__value"><PulseValue value={estados.pendiente} /></div>
@@ -272,7 +233,7 @@ export default function EnVivo({ onPollingStatus }: Props) {
           <div className="counter-card__label">Resuelto</div>
           <div className="counter-card__value"><PulseValue value={estados.resuelto} /></div>
           <div className="progress-bar">
-            <div className="progress-bar__fill" style={{ width: `${resueltosPct}%`, background: 'var(--blue)' }} />
+            <div className="progress-bar__fill" style={{ width: `${(estados.resuelto / (total || 1)) * 100}%`, background: 'var(--blue)' }} />
           </div>
         </div>
         <div className="counter-card counter-card--fallido">
@@ -284,93 +245,86 @@ export default function EnVivo({ onPollingStatus }: Props) {
         </div>
       </div>
 
-      {/* Veredictos: dona + chips */}
-      {stats && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginBottom: 24, flexWrap: 'wrap' }}>
+      {/* ── Métricas + Donut ──────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, marginBottom: 28, alignItems: 'start' }}>
+        <MetricCard
+          label="Tasa de resolución"
+          value={`${resueltosPct}%`}
+          sub={`${estados.resuelto} de ${total} consultas`}
+          color={resueltosPct >= 80 ? 'var(--accent)' : resueltosPct >= 50 ? 'var(--blue)' : 'var(--warning)'}
+        />
+        <MetricCard
+          label="Resuelto por RAG"
+          value={`${ragPct}%`}
+          sub={`${veredictos.respondido_rag} respuestas autónomas`}
+          color="var(--accent)"
+        />
+        {(veredictos.respondido_rag + veredictos.enrutado + veredictos.no_aplica > 0) && (
           <VeredictDonut
             rag={veredictos.respondido_rag}
             enrutado={veredictos.enrutado}
             noAplica={veredictos.no_aplica}
           />
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <span className="chip chip--rag">RAG <PulseValue value={veredictos.respondido_rag} /></span>
-            <span className="chip chip--enrutado">Enrutado <PulseValue value={veredictos.enrutado} /></span>
-            <span className="chip chip--no_aplica">No aplica <PulseValue value={veredictos.no_aplica} /></span>
-          </div>
+        )}
+      </div>
+
+      {/* ── Chips de veredictos ───────────────────────────────────────── */}
+      {(veredictos.respondido_rag + veredictos.enrutado + veredictos.no_aplica > 0) && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 32 }}>
+          <span className="chip chip--rag">RAG <PulseValue value={veredictos.respondido_rag} /></span>
+          <span className="chip chip--enrutado">Enrutado <PulseValue value={veredictos.enrutado} /></span>
+          <span className="chip chip--no_aplica">No aplica <PulseValue value={veredictos.no_aplica} /></span>
+          {estados.fallido > 0 && (
+            <span className="chip chip--fallido">Fallido <PulseValue value={estados.fallido} /></span>
+          )}
         </div>
       )}
 
-      {/* EN PROCESO */}
-      <div className="processing-section">
-        <div className="section-title">En proceso</div>
-        {procesando.length === 0 ? (
-          <div className="card" style={{ color: 'var(--muted)', fontSize: 13, textAlign: 'center', padding: '24px' }}>
-            {done ? 'Cola vacía.' : 'Esperando consultas...'}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {procesando.map(c => (
-              <div key={c.consultaId} className={`processing-card ${changedIds.has(c.consultaId) ? 'row--pulse' : ''}`}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <span className="processing-card__id">{c.consultaId}</span>
-                  <span className="analyzing-badge">ANALIZANDO</span>
-                </div>
-                <p className="processing-card__text">{c.texto}</p>
-                <div className="processing-card__meta">{c.remitente} · {fmt(c.timestamp)}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* EN COLA */}
-      <div>
-        <div className="section-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span>En cola</span>
-          {estados.pendiente > 10 && (
-            <span style={{ color: 'var(--muted)', fontWeight: 400 }}>+{estados.pendiente - 10} más</span>
-          )}
-        </div>
-        {pendiente.length === 0 ? (
-          <div className="card" style={{ color: 'var(--muted)', fontSize: 13, textAlign: 'center', padding: '24px' }}>
-            {done ? 'Sin consultas pendientes.' : 'Cola vacía.'}
-          </div>
-        ) : (
-          <div className="queue-list">
-            {pendiente.map((c, i) => (
-              <div key={c.consultaId} className={`queue-item ${changedIds.has(c.consultaId) ? 'row--pulse' : ''}`}>
-                <span className="mono" style={{ fontSize: 11, color: 'var(--muted)', width: 20, flexShrink: 0 }}>{i + 1}</span>
-                <span className="queue-item__id">{c.consultaId}</span>
-                <span className="queue-item__text">{c.texto}</span>
-                <span className="queue-item__remitente">{c.remitente}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Worker info */}
-      <div className="worker-info">
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: done ? 'var(--muted)' : 'var(--accent)', display: 'inline-block', flexShrink: 0 }} />
-        <span className="mono" style={{ fontSize: 11 }}>1 worker activo · escalable a N</span>
-        {total > 0 && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>total: {total}</span>}
-      </div>
-
-      {/* Feed de actividad */}
+      {/* ── Feed de actividad reciente ────────────────────────────────── */}
       {activity.length > 0 && (
-        <div style={{ marginTop: 28 }}>
+        <div>
           <div className="section-title">Actividad reciente</div>
           <div className="activity-feed">
             {activity.map(e => (
               <div key={e.id} className="activity-entry">
-                <span className="activity-entry__id">{e.consultaId}</span>
-                <span className="activity-entry__verdict" style={{ color: verdictColor(e) }}>
+                <span
+                  className="activity-entry__id"
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}
+                >
+                  {e.consultaId}
+                </span>
+                <span
+                  className="activity-entry__verdict"
+                  style={{ color: verdictColor(e), fontSize: 12, fontWeight: 500, flexShrink: 0 }}
+                >
                   {verdictLabel(e)}
                 </span>
-                <span className="activity-entry__time">{fmtTime(e.time)}</span>
+                <span
+                  style={{ fontSize: 12, color: 'var(--text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
+                  {e.texto}
+                </span>
+                <span
+                  className="activity-entry__time mono"
+                  style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}
+                >
+                  {fmtTime(e.time)}
+                </span>
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {!stats && !error && (
+        <div className="empty-state" style={{ paddingTop: 40 }}>
+          <div className="empty-state__title">Cargando datos...</div>
+        </div>
+      )}
+
+      {stats && activity.length === 0 && (
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
+          El feed de actividad se pobla cuando consultas finalizan su procesamiento.
         </div>
       )}
     </div>

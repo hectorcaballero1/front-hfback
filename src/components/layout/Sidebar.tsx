@@ -1,10 +1,11 @@
-import { Activity, CheckSquare, Inbox } from 'lucide-react';
+import { Activity, CheckSquare, Inbox, BookOpen } from 'lucide-react';
 import type { View } from '../../types';
 
 const NAV: { id: View; icon: typeof Activity; label: string }[] = [
-  { id: 'envivo',     icon: Activity,    label: 'En vivo' },
-  { id: 'procesados', icon: CheckSquare, label: 'Procesados' },
+  { id: 'envivo',     icon: Activity,    label: 'Dashboard' },
   { id: 'bandeja',   icon: Inbox,       label: 'Bandeja' },
+  { id: 'corpus',    icon: BookOpen,    label: 'Corpus RAG' },
+  { id: 'procesados', icon: CheckSquare, label: 'Procesados' },
 ];
 
 interface Props {

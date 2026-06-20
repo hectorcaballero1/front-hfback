@@ -1,18 +1,31 @@
-import { useRef, useState, type DragEvent } from 'react';
-import { Upload, CheckCircle, AlertCircle, BookOpen } from 'lucide-react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { Upload, CheckCircle, AlertCircle, ArrowRight, Minus } from 'lucide-react';
 import { useTenant } from '../../context/TenantContext';
 import { api } from '../../api/client';
+import type { Consulta, Veredicto } from '../../types';
+import ToastStack, { type ToastEvent } from '../ui/ToastStack';
 
-type Modo = 'consultas' | 'documentos';
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-interface LogEntry {
+interface UploadEntry {
   id: string;
   count: number;
   tenant: string;
   timestamp: Date;
-  modo: Modo;
   error?: string;
 }
+
+interface ResueltaEntry {
+  id: string;
+  consultaId: string;
+  texto: string;
+  veredicto: Veredicto | null;
+  estado: 'resuelto' | 'fallido';
+  area: string | null;
+  timestamp: Date;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function timeAgo(d: Date): string {
   const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
@@ -22,7 +35,26 @@ function timeAgo(d: Date): string {
   return `hace ${Math.floor(diffMin / 60)}h`;
 }
 
-const EJEMPLO_CONSULTAS = (tenant: string) =>
+function fmt(iso: string) {
+  try { return new Date(iso).toLocaleTimeString('es-PE'); }
+  catch { return iso; }
+}
+
+function VeredictoBadge({ veredicto, estado }: { veredicto: Veredicto | null; estado: string }) {
+  if (estado === 'fallido') return <span className="chip chip--fallido">Fallido</span>;
+  if (veredicto === 'respondido_rag') return <span className="chip chip--rag">RAG</span>;
+  if (veredicto === 'enrutado') return <span className="chip chip--enrutado">Enrutado</span>;
+  return <span className="chip chip--no_aplica">No aplica</span>;
+}
+
+function VeredictIcon({ veredicto, estado }: { veredicto: Veredicto | null; estado: string }) {
+  if (estado === 'fallido') return <AlertCircle size={14} style={{ color: 'var(--danger)', flexShrink: 0 }} />;
+  if (veredicto === 'respondido_rag') return <CheckCircle size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />;
+  if (veredicto === 'enrutado') return <ArrowRight size={14} style={{ color: 'var(--blue)', flexShrink: 0 }} />;
+  return <Minus size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />;
+}
+
+const EJEMPLO = (tenant: string) =>
   `{
   "tenantId": "${tenant}",
   "consultas": [
@@ -34,99 +66,146 @@ const EJEMPLO_CONSULTAS = (tenant: string) =>
   ]
 }`;
 
-const EJEMPLO_DOCUMENTOS = (tenant: string) =>
-  `{
-  "tenantId": "${tenant}",
-  "documentos": [
-    {
-      "fuente": "faq_becas.txt",
-      "texto": "Para postular a una beca necesitás..."
-    },
-    {
-      "fuente": "calendario_2026.txt",
-      "texto": "El semestre 2026-1 inicia el 10 de marzo..."
-    }
-  ]
-}`;
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Bandeja() {
   const { activeTenant } = useTenant();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [modo, setModo] = useState<Modo>('consultas');
+
+  // Upload state
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [log, setLog] = useState<LogEntry[]>([]);
+  const [uploadLog, setUploadLog] = useState<UploadEntry[]>([]);
   const [, forceRender] = useState(0);
 
-  // Re-render every 30s to update time-ago labels
+  // Queue state
+  const [procesando, setProcesando] = useState<Consulta[]>([]);
+  const [pendiente, setPendiente] = useState<Consulta[]>([]);
+  const [resueltas, setResueltas] = useState<ResueltaEntry[]>([]);
+  const [toasts, setToasts] = useState<ToastEvent[]>([]);
+  const [changedIds, setChangedIds] = useState<Set<string>>(new Set());
+
+  const procRef = useRef<Map<string, Consulta>>(new Map());
+
+  // Re-render every 30s for time-ago labels
   useRef(setInterval(() => forceRender(n => n + 1), 30_000));
 
-  const addLog = ({ count, error }: { count: number; error?: string }) => {
-    setLog(prev => [
-      { id: crypto.randomUUID(), count, tenant: activeTenant, timestamp: new Date(), modo, error },
-      ...prev.slice(0, 19),
+  // ── Polling ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let active = true;
+    procRef.current = new Map();
+    setProcesando([]);
+    setPendiente([]);
+    setResueltas([]);
+    setToasts([]);
+    setChangedIds(new Set());
+
+    let timer: ReturnType<typeof setTimeout>;
+    const tenant = activeTenant;
+
+    const poll = async () => {
+      try {
+        const [newProc, newPend] = await Promise.all([
+          api.getConsultas({ tenantId: tenant, estado: 'procesando', limit: 10 }),
+          api.getConsultas({ tenantId: tenant, estado: 'pendiente', limit: 20 }),
+        ]);
+        if (!active) return;
+
+        // Detect departed
+        const newProcIds = new Set(newProc.items.map(c => c.consultaId));
+        const departed = [...procRef.current.keys()].filter(id => !newProcIds.has(id));
+
+        if (departed.length > 0) {
+          Promise.all(departed.map(id => api.getConsulta(id, tenant).catch(() => null)))
+            .then(results => {
+              if (!active) return;
+              results.forEach(c => {
+                if (!c) return;
+                const entry: ResueltaEntry = {
+                  id: crypto.randomUUID(),
+                  consultaId: c.consultaId,
+                  texto: c.texto,
+                  veredicto: c.veredicto,
+                  estado: c.estado as 'resuelto' | 'fallido',
+                  area: c.area,
+                  timestamp: new Date(),
+                };
+                setResueltas(prev => [entry, ...prev].slice(0, 30));
+                setToasts(prev => [
+                  ...prev,
+                  { id: crypto.randomUUID(), consultaId: c.consultaId, veredicto: c.veredicto, estado: c.estado as 'resuelto' | 'fallido', area: c.area },
+                ]);
+              });
+            });
+        }
+
+        // Detect changed for pulse
+        const changed = new Set<string>();
+        for (const c of newProc.items) {
+          const prev = procRef.current.get(c.consultaId);
+          if (!prev || prev.updatedAt !== c.updatedAt) changed.add(c.consultaId);
+        }
+
+        procRef.current = new Map(newProc.items.map(c => [c.consultaId, c]));
+
+        setProcesando(newProc.items);
+        setPendiente(newPend.items);
+
+        if (changed.size > 0) {
+          setChangedIds(changed);
+          setTimeout(() => { if (active) setChangedIds(new Set()); }, 400);
+        }
+
+        timer = setTimeout(poll, 1500);
+      } catch {
+        if (!active) return;
+        timer = setTimeout(poll, 3000);
+      }
+    };
+
+    poll();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [activeTenant]);
+
+  // ── Upload ────────────────────────────────────────────────────────────────
+  const addUploadLog = ({ count, error }: { count: number; error?: string }) => {
+    setUploadLog(prev => [
+      { id: crypto.randomUUID(), count, tenant: activeTenant, timestamp: new Date(), error },
+      ...prev.slice(0, 9),
     ]);
   };
 
   const processFile = async (file: File) => {
     if (!file.name.endsWith('.json') && file.type !== 'application/json') {
-      addLog({ count: 0, error: 'El archivo debe ser JSON.' });
+      addUploadLog({ count: 0, error: 'El archivo debe ser JSON.' });
       return;
     }
-
     let parsed: unknown;
     try {
       const raw = await file.text();
       parsed = JSON.parse(raw);
     } catch {
-      addLog({ count: 0, error: 'JSON inválido. Revisá el formato.' });
+      addUploadLog({ count: 0, error: 'JSON inválido. Revisá el formato.' });
       return;
     }
 
     const body = parsed as Record<string, unknown>;
+    const consultas = Array.isArray(body.consultas) ? body.consultas : [];
+    const payload = { ...body, tenantId: activeTenant };
 
-    if (modo === 'consultas') {
-      const consultas = Array.isArray(body.consultas) ? body.consultas : [];
-      const payload = { ...body, tenantId: activeTenant };
-
-      setUploading(true);
-      try {
-        const { uploadUrl } = await api.presign(activeTenant, 'consultas');
-        await api.uploadToS3(uploadUrl, payload);
-        addLog({ count: consultas.length });
-      } catch (e) {
-        addLog({ count: 0, error: e instanceof Error ? e.message : 'Error al subir.' });
-      } finally {
-        setUploading(false);
-        if (inputRef.current) inputRef.current.value = '';
-      }
-    } else {
-      if (!Array.isArray(body.documentos)) {
-        addLog({ count: 0, error: 'El JSON debe tener un campo "documentos" con un array.' });
-        if (inputRef.current) inputRef.current.value = '';
-        return;
-      }
-      const documentos = body.documentos as { fuente?: unknown; texto?: unknown }[];
-      const invalid = documentos.findIndex(d => typeof d.fuente !== 'string' || typeof d.texto !== 'string');
-      if (invalid !== -1) {
-        addLog({ count: 0, error: `Documento en posición ${invalid} le falta "fuente" o "texto".` });
-        if (inputRef.current) inputRef.current.value = '';
-        return;
-      }
-
-      const payload = { ...body, tenantId: activeTenant };
-
-      setUploading(true);
-      try {
-        const { uploadUrl } = await api.presign(activeTenant, 'documentos');
-        await api.uploadToS3(uploadUrl, payload);
-        addLog({ count: documentos.length });
-      } catch (e) {
-        addLog({ count: 0, error: e instanceof Error ? e.message : 'Error al subir.' });
-      } finally {
-        setUploading(false);
-        if (inputRef.current) inputRef.current.value = '';
-      }
+    setUploading(true);
+    try {
+      const { uploadUrl } = await api.presign(activeTenant, 'consultas');
+      await api.uploadToS3(uploadUrl, payload);
+      addUploadLog({ count: consultas.length });
+    } catch (e) {
+      addUploadLog({ count: 0, error: e instanceof Error ? e.message : 'Error al subir.' });
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
     }
   };
 
@@ -134,64 +213,29 @@ export default function Bandeja() {
     const file = e.target.files?.[0];
     if (file) processFile(file);
   };
-
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files[0];
     if (file) processFile(file);
   };
-
-  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragging(true);
-  };
-
+  const onDragOver = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragging(true); };
   const onDragLeave = () => setDragging(false);
 
-  const esDocumentos = modo === 'documentos';
-  const logFiltrado = log.filter(e => e.modo === modo);
+  const hayActividad = procesando.length > 0 || pendiente.length > 0 || resueltas.length > 0;
 
   return (
     <div>
+      <ToastStack events={toasts} onRemove={id => setToasts(p => p.filter(t => t.id !== id))} />
+
       <h1 className="page-title">Bandeja</h1>
 
-      {/* Toggle consultas / documentos */}
-      <div className="filter-tabs" role="tablist" aria-label="Modo de subida" style={{ marginBottom: 20 }}>
-        <button
-          role="tab"
-          aria-selected={modo === 'consultas'}
-          className={`filter-tab${modo === 'consultas' ? ' active' : ''}`}
-          onClick={() => setModo('consultas')}
-        >
-          Consultas
-        </button>
-        <button
-          role="tab"
-          aria-selected={modo === 'documentos'}
-          className={`filter-tab${modo === 'documentos' ? ' active' : ''}`}
-          onClick={() => setModo('documentos')}
-        >
-          <BookOpen size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-          Corpus RAG
-        </button>
-      </div>
-
-      <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 24 }}>
-        {esDocumentos
-          ? <>Ingesta documentos al RAG del tenant <span className="mono" style={{ color: 'var(--accent)' }}>{activeTenant}</span>. Re-subir la misma fuente actualiza sin duplicar.</>
-          : <>Inyecta consultas al flujo de triage del tenant <span className="mono" style={{ color: 'var(--accent)' }}>{activeTenant}</span>.</>
-        }
-      </p>
-
-      {/* Upload area */}
+      {/* ── Upload ──────────────────────────────────────────────────────── */}
       <div
         className={`upload-area ${dragging ? 'drag-over' : ''}`}
         role="button"
         tabIndex={0}
-        aria-label={esDocumentos
-          ? 'Soltar JSON de documentos aquí o hacer clic para seleccionar'
-          : 'Soltar archivo JSON aquí o hacer clic para seleccionar'}
+        aria-label="Soltar archivo JSON aquí o hacer clic para seleccionar"
         onClick={() => !uploading && inputRef.current?.click()}
         onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && !uploading && inputRef.current?.click()}
         onDrop={onDrop}
@@ -208,105 +252,134 @@ export default function Bandeja() {
           style={{ display: 'none' }}
           aria-hidden
         />
-        <Upload
-          size={28}
-          style={{ color: dragging ? 'var(--accent)' : 'var(--muted)', marginBottom: 12 }}
-        />
+        <Upload size={28} style={{ color: dragging ? 'var(--accent)' : 'var(--muted)', marginBottom: 12 }} />
         <div style={{ fontSize: 14, fontWeight: 500, color: dragging ? 'var(--accent)' : 'var(--text)', marginBottom: 4 }}>
           {uploading ? 'Subiendo...' : 'Arrastrá un JSON o hacé clic'}
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-          {esDocumentos
-            ? '{ "tenantId": "...", "documentos": [{ "fuente", "texto" }] }'
-            : '{ "tenantId": "...", "consultas": [{ "id", "texto", "remitente" }] }'
-          }
+          tenant: <span className="mono" style={{ color: 'var(--accent)' }}>{activeTenant}</span>
+          {' · '}formato: consultas
         </div>
       </div>
 
-      {/* Ejemplo de formato */}
-      <details style={{ marginTop: 16 }}>
-        <summary
-          style={{
-            fontSize: 12,
-            color: 'var(--muted)',
-            cursor: 'pointer',
-            userSelect: 'none',
-            listStyle: 'none',
-          }}
-        >
-          Ver formato esperado
-        </summary>
-        <pre
-          className="mono"
-          style={{
-            marginTop: 8,
-            padding: '12px 14px',
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius)',
-            fontSize: 12,
-            color: 'var(--text)',
-            overflowX: 'auto',
-            lineHeight: 1.6,
-          }}
-        >
-          {esDocumentos ? EJEMPLO_DOCUMENTOS(activeTenant) : EJEMPLO_CONSULTAS(activeTenant)}
-        </pre>
-      </details>
-
-      {/* Log */}
-      {logFiltrado.length > 0 && (
-        <div style={{ marginTop: 32 }}>
-          <div className="section-title">
-            {esDocumentos ? 'Corpus enviado recientemente' : 'Inyecciones recientes'}
-          </div>
-          <div className="upload-log">
-            {logFiltrado.map(entry => (
-              <div key={entry.id} className="upload-log-item">
-                {entry.error ? (
-                  <AlertCircle size={16} style={{ color: 'var(--danger)', flexShrink: 0 }} />
-                ) : (
-                  <CheckCircle size={16} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-                )}
-
-                {entry.error ? (
-                  <div style={{ flex: 1 }}>
-                    <div style={{ color: 'var(--danger)', fontSize: 13 }}>{entry.error}</div>
-                    <div className="mono" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                      {entry.tenant} · {timeAgo(entry.timestamp)}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, color: 'var(--text)' }}>
-                      <span className="upload-log-item__count">{entry.count}</span>
-                      {' '}
-                      {esDocumentos
-                        ? entry.count === 1 ? 'documento enviado al RAG' : 'documentos enviados al RAG'
-                        : entry.count === 1 ? 'consulta inyectada' : 'consultas inyectadas'
-                      }
-                    </div>
-                    <div className="mono" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                      {entry.tenant} · {timeAgo(entry.timestamp)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+      {/* Upload log (compact, inline) */}
+      {uploadLog.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 8 }}>
+          {uploadLog.map(entry => (
+            <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '5px 0' }}>
+              {entry.error
+                ? <AlertCircle size={13} style={{ color: 'var(--danger)', flexShrink: 0 }} />
+                : <CheckCircle size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+              }
+              <span style={{ color: entry.error ? 'var(--danger)' : 'var(--text)' }}>
+                {entry.error ?? `${entry.count} ${entry.count === 1 ? 'consulta inyectada' : 'consultas inyectadas'}`}
+              </span>
+              <span className="mono" style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 'auto' }}>
+                {timeAgo(entry.timestamp)}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
-      {logFiltrado.length === 0 && (
-        <div className="empty-state" style={{ paddingTop: 32 }}>
-          <div className="empty-state__title">
-            {esDocumentos ? 'Sin documentos enviados todavía.' : 'Sin inyecciones todavía.'}
-          </div>
+      <details style={{ marginTop: 12 }}>
+        <summary style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer', userSelect: 'none', listStyle: 'none' }}>
+          Ver formato esperado
+        </summary>
+        <pre className="mono" style={{ marginTop: 8, padding: '12px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', fontSize: 12, color: 'var(--text)', overflowX: 'auto', lineHeight: 1.6 }}>
+          {EJEMPLO(activeTenant)}
+        </pre>
+      </details>
+
+      {/* ── Cola en vivo ─────────────────────────────────────────────────── */}
+      {hayActividad ? (
+        <div style={{ marginTop: 36 }}>
+
+          {/* En proceso */}
+          {procesando.length > 0 && (
+            <div className="processing-section">
+              <div className="section-title">En proceso</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {procesando.map(c => (
+                  <div key={c.consultaId} className={`processing-card ${changedIds.has(c.consultaId) ? 'row--pulse' : ''}`}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span className="processing-card__id">{c.consultaId}</span>
+                      <span className="analyzing-badge">ANALIZANDO</span>
+                    </div>
+                    <p className="processing-card__text">{c.texto}</p>
+                    <div className="processing-card__meta">{c.remitente} · {fmt(c.timestamp)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* En cola */}
+          {pendiente.length > 0 && (
+            <div style={{ marginBottom: 28 }}>
+              <div className="section-title">
+                <span>En cola</span>
+                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>{pendiente.length}</span>
+              </div>
+              <div className="queue-list">
+                {pendiente.map((c, i) => (
+                  <div key={c.consultaId} className={`queue-item ${changedIds.has(c.consultaId) ? 'row--pulse' : ''}`}>
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--muted)', width: 20, flexShrink: 0 }}>{i + 1}</span>
+                    <span className="queue-item__id">{c.consultaId}</span>
+                    <span className="queue-item__text">{c.texto}</span>
+                    <span className="queue-item__remitente">{c.remitente}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Resultados de esta sesión */}
+          {resueltas.length > 0 && (
+            <div>
+              <div className="section-title">Resultados de esta sesión</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {resueltas.map(r => (
+                  <div
+                    key={r.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
+                      padding: '10px 14px',
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius)',
+                      boxShadow: 'var(--shadow-sm)',
+                    }}
+                  >
+                    <VeredictIcon veredicto={r.veredicto} estado={r.estado} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                        <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{r.consultaId}</span>
+                        <VeredictoBadge veredicto={r.veredicto} estado={r.estado} />
+                        {r.area && (
+                          <span style={{ fontSize: 11, color: 'var(--muted)' }}>→ {r.area}</span>
+                        )}
+                        <span className="mono" style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 'auto' }}>
+                          {timeAgo(r.timestamp)}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: 13, color: 'var(--text)', margin: 0, lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                        {r.texto}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="empty-state" style={{ paddingTop: 40 }}>
+          <div className="empty-state__title">Cola vacía.</div>
           <div className="empty-state__desc">
-            {esDocumentos
-              ? 'Sube un JSON con documentos para ingestar el corpus del RAG.'
-              : 'Sube un JSON para empezar.'
-            }
+            Sube un JSON para inyectar consultas y ver el procesamiento aquí.
           </div>
         </div>
       )}
