@@ -31,9 +31,9 @@ function toastMeta(e: ToastEvent): { color: string; bg: string; border: string; 
       };
     case 'enrutado':
       return {
-        color: '#60A5FA',
-        bg: '#3B82F60F',
-        border: '#3B82F640',
+        color: '#2563EB',
+        bg: '#EFF6FF',
+        border: '#BFDBFE',
         icon: <ArrowRight size={13} />,
         label: e.area ? `${e.consultaId} → enrutado a ${e.area}` : `${e.consultaId} → enrutado`,
       };

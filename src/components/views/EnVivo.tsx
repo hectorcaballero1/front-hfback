@@ -40,7 +40,7 @@ function verdictColor(e: ActivityEntry) {
   if (e.estado === 'fallido') return 'var(--danger)';
   switch (e.veredicto) {
     case 'respondido_rag': return 'var(--accent)';
-    case 'enrutado':       return '#60A5FA';
+    case 'enrutado':       return 'var(--blue)';
     default:               return 'var(--muted)';
   }
 }
@@ -54,9 +54,9 @@ function VeredictDonut({ rag, enrutado, noAplica }: { rag: number; enrutado: num
   const C = 2 * Math.PI * R;
 
   const segs = [
-    { value: rag,      color: '#00D4AA', label: 'RAG' },
-    { value: enrutado, color: '#60A5FA', label: 'Enrutado' },
-    { value: noAplica, color: '#6B7280', label: 'N/A' },
+    { value: rag,      color: '#0D9488', label: 'RAG' },
+    { value: enrutado, color: '#2563EB', label: 'Enrutado' },
+    { value: noAplica, color: '#94A3B8', label: 'N/A' },
   ];
 
   let cumFrac = 0;
@@ -255,7 +255,7 @@ export default function EnVivo({ onPollingStatus }: Props) {
           <div className="counter-card__label">Pendiente</div>
           <div className="counter-card__value"><PulseValue value={estados.pendiente} /></div>
           <div className="progress-bar">
-            <div className="progress-bar__fill" style={{ width: total > 0 ? `${(estados.pendiente / total) * 100}%` : '0%', background: '#FBBF24' }} />
+            <div className="progress-bar__fill" style={{ width: total > 0 ? `${(estados.pendiente / total) * 100}%` : '0%', background: '#D97706' }} />
           </div>
         </div>
         <div className="counter-card counter-card--procesando">
@@ -269,7 +269,7 @@ export default function EnVivo({ onPollingStatus }: Props) {
           <div className="counter-card__label">Resuelto</div>
           <div className="counter-card__value"><PulseValue value={estados.resuelto} /></div>
           <div className="progress-bar">
-            <div className="progress-bar__fill" style={{ width: `${resueltosPct}%`, background: '#60A5FA' }} />
+            <div className="progress-bar__fill" style={{ width: `${resueltosPct}%`, background: 'var(--blue)' }} />
           </div>
         </div>
         <div className="counter-card counter-card--fallido">
