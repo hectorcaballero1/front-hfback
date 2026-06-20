@@ -17,17 +17,34 @@ export default function Sidebar({ view, setView }: Props) {
   return (
     <aside className="layout__sidebar">
       <div
-        className="mono"
         style={{
-          fontSize: 10,
-          color: 'var(--accent)',
-          fontWeight: 500,
-          letterSpacing: '0.05em',
+          width: 32,
+          height: 32,
+          borderRadius: 8,
+          background: 'var(--accent)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 9,
+          fontWeight: 700,
+          color: 'white',
+          letterSpacing: '0.02em',
           marginBottom: 12,
           userSelect: 'none',
+          flexShrink: 0,
+          overflow: 'hidden',
+          position: 'relative',
         }}
+        aria-label="High Flying Birds"
       >
-        H//
+        <img
+          src="/birds/logo.png"
+          alt=""
+          style={{ position: 'absolute', inset: 2, width: 'calc(100% - 4px)', height: 'calc(100% - 4px)', objectFit: 'contain', imageRendering: 'pixelated' }}
+          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+        />
+        <span style={{ position: 'relative' }}>HFB</span>
       </div>
 
       {NAV.map(({ id, icon: Icon, label }) => (
@@ -43,7 +60,7 @@ export default function Sidebar({ view, setView }: Props) {
         </button>
       ))}
 
-      <span className="sidebar-logo">HACK//UTEC</span>
+      <span className="sidebar-logo">High Flying Birds</span>
     </aside>
   );
 }

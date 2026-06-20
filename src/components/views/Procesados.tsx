@@ -6,13 +6,14 @@ import type { Consulta, Veredicto } from '../../types';
 import { VeredictoChip } from '../ui/Chip';
 import ConsultaDetail from '../ui/ConsultaDetail';
 
-type Filter = 'all' | Veredicto;
+type Filter = 'all' | Veredicto | 'fallido';
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all',            label: 'Todos' },
   { id: 'respondido_rag', label: 'RAG' },
   { id: 'enrutado',       label: 'Enrutados' },
   { id: 'no_aplica',      label: 'No aplica' },
+  { id: 'fallido',        label: 'Fallidos' },
 ];
 
 function fmt(iso: string) {
@@ -42,10 +43,11 @@ export default function Procesados() {
     setLoading(true);
     setError(null);
     try {
+      const esFallido = filter === 'fallido';
       const res = await api.getConsultas({
         tenantId: activeTenant,
-        estado: 'resuelto',
-        veredicto: filter === 'all' ? undefined : filter,
+        estado: esFallido ? 'fallido' : 'resuelto',
+        veredicto: (!esFallido && filter !== 'all') ? (filter as Veredicto) : undefined,
         limit: 20,
         cursor,
       });
@@ -89,11 +91,11 @@ export default function Procesados() {
       <h1 className="page-title">Procesados</h1>
 
       {/* Filtros */}
-      <div className="filter-tabs" role="group" aria-label="Filtrar por veredicto">
+      <div className="filter-tabs" role="group" aria-label="Filtrar por estado y veredicto">
         {FILTERS.map(f => (
           <button
             key={f.id}
-            className={`filter-tab ${filter === f.id ? 'active' : ''}`}
+            className={`filter-tab ${filter === f.id ? 'active' : ''} ${f.id === 'fallido' && filter === 'fallido' ? 'filter-tab--danger' : ''}`}
             onClick={() => setFilter(f.id)}
             aria-pressed={filter === f.id}
           >
@@ -114,7 +116,9 @@ export default function Procesados() {
         <div className="empty-state">
           <div className="empty-state__title">Sin resultados</div>
           <div className="empty-state__desc">
-            No hay consultas resueltas con ese filtro todavía.
+            {filter === 'fallido'
+              ? 'No hay consultas fallidas. Todo procesó bien.'
+              : 'No hay consultas resueltas con ese filtro todavía.'}
           </div>
         </div>
       )}
