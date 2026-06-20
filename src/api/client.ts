@@ -35,6 +35,38 @@ export const api = {
       `/consultas/${encodeURIComponent(id)}?tenantId=${encodeURIComponent(tenantId)}`,
     ),
 
+  /**
+   * Trae TODAS las consultas de un estado paginando el endpoint /consultas.
+   * /stats no es confiable (cuenta una sola página de 1MB), así que el dashboard
+   * agrega los conteos reales desde acá. `maxPages` acota el costo si hay miles.
+   */
+  getAllConsultas: async (params: {
+    tenantId: string;
+    estado?: Estado;
+    veredicto?: Veredicto;
+    maxPages?: number;
+  }): Promise<{ items: Consulta[]; truncated: boolean }> => {
+    const maxPages = params.maxPages ?? 15;
+    const items: Consulta[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    let truncated = false;
+    do {
+      const res = await api.getConsultas({
+        tenantId: params.tenantId,
+        estado: params.estado,
+        veredicto: params.veredicto,
+        limit: 100,
+        cursor,
+      });
+      items.push(...res.items);
+      cursor = res.nextCursor ?? undefined;
+      pages += 1;
+      if (cursor && pages >= maxPages) { truncated = true; break; }
+    } while (cursor);
+    return { items, truncated };
+  },
+
   presign: (tenantId: string, tipo: 'consultas' | 'documentos' = 'consultas') =>
     fetch(`${BASE}/uploads/presign`, {
       method: 'POST',

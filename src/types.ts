@@ -1,6 +1,6 @@
 export type Estado = 'pendiente' | 'procesando' | 'resuelto' | 'fallido';
 export type Veredicto = 'respondido_rag' | 'enrutado' | 'no_aplica';
-export type View = 'landing' | 'envivo' | 'bandeja' | 'corpus' | 'procesados';
+export type View = 'landing' | 'ingesta' | 'consultas' | 'corpus';
 
 export interface Tenant {
   tenantId: string;
@@ -34,6 +34,7 @@ export interface Consulta {
   respuesta: string | null;
   fuente: string | null;
   modelo: string | null;
+  motivo?: string | null;
   fragmento?: string | null;
   timestamp: string;
   updatedAt: string;

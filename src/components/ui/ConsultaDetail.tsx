@@ -162,6 +162,13 @@ export default function ConsultaDetail({ consultaId, tenantId, initial, onClose 
                 </div>
               )}
 
+              {consulta.motivo && (
+                <div className="detail-field">
+                  <div className="detail-field__label">Motivo de fallo</div>
+                  <div className="detail-field__value mono" style={{ color: 'var(--danger)' }}>{consulta.motivo}</div>
+                </div>
+              )}
+
               {consulta.modelo && (
                 <div className="detail-field">
                   <div className="detail-field__label">Modelo</div>

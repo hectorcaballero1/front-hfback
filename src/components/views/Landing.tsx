@@ -4,17 +4,6 @@ interface Props {
   onEnter: () => void;
 }
 
-function BirdImg({ src, alt, style }: { src: string; alt: string; style?: React.CSSProperties }) {
-  return (
-    <img
-      src={src}
-      alt={alt}
-      style={{ imageRendering: 'pixelated', ...style }}
-      onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-    />
-  );
-}
-
 export default function Landing({ onEnter }: Props) {
   return (
     <div className="landing">
@@ -22,14 +11,13 @@ export default function Landing({ onEnter }: Props) {
       {/* ── Navbar ──────────────────────────────────────────────────────────── */}
       <header className="landing-header">
         <div className="landing-header__logo">
-          {/* Slot 1: logo bird — coloca /public/birds/logo.png */}
-          <span className="landing-header__logo-mark">
-            <BirdImg src="/birds/logo.png" alt="HFB" style={{ width: 18, height: 18 }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, color: 'white' }}>
-              HFB
-            </span>
-          </span>
-          High Flying Birds
+          <img
+            src="/logo.png"
+            alt="High Flying Birds"
+            style={{ height: 28, width: 'auto', objectFit: 'contain' }}
+            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+          />
+          HIGH FLYING BIRDS
         </div>
         <button className="btn landing-cta" onClick={onEnter} style={{ padding: '7px 16px', fontSize: 13 }}>
           Entrar al sistema <ArrowRight size={13} />
@@ -48,43 +36,15 @@ export default function Landing({ onEnter }: Props) {
             </h1>
             <p className="landing-hero__sub">
               Cada consulta en texto libre, leída, entendida y resuelta
-              o enrutada al área correcta — sin formularios rígidos,
+              o enrutada al área correcta. Sin formularios rígidos,
               sin reenvíos manuales, sin consultas perdidas.
             </p>
             <button className="btn landing-cta" onClick={onEnter}>
               Ver el sistema en vivo <ArrowRight size={14} />
             </button>
           </div>
-
-          {/* Slot 2: hero bird — coloca /public/birds/hero.png */}
-          <div className="landing-hero__visual">
-            <BirdImg
-              src="/birds/hero.png"
-              alt="High Flying Birds mascot"
-              style={{ width: '100%', height: '100%', objectFit: 'contain', imageRendering: 'pixelated' }}
-            />
-          </div>
         </div>
       </section>
-
-      {/* ── Stats strip ─────────────────────────────────────────────────────── */}
-      <div className="landing-stats">
-        <div className="landing-inner">
-          {[
-            { value: '< 2', unit: 's', label: 'latencia media por consulta' },
-            { value: '3', unit: ' veredictos', label: 'RAG · Enrutado · No aplica' },
-            { value: 'N', unit: ' workers', label: 'arquitectura serverless escalable' },
-            { value: '∞', unit: '', label: 'dominios soportados en paralelo' },
-          ].map(s => (
-            <div key={s.label} className="landing-stat">
-              <div className="landing-stat__value">
-                {s.value}<span>{s.unit}</span>
-              </div>
-              <div className="landing-stat__label">{s.label}</div>
-            </div>
-          ))}
-        </div>
-      </div>
 
       {/* ── Cómo funciona ───────────────────────────────────────────────────── */}
       <section className="landing-section">
@@ -101,7 +61,7 @@ export default function Landing({ onEnter }: Props) {
               <h3 className="landing-feature__title">Responde lo que ya está documentado</h3>
               <p className="landing-feature__desc">
                 Si la consulta tiene respuesta en tus reglamentos o FAQs, la responde
-                al instante citando la fuente exacta. Sin inventar, sin alucinar —
+                al instante citando la fuente exacta. Sin inventar, sin alucinar,
                 solo sobre documentación real.
               </p>
               <div className="landing-feature__chip">
@@ -117,7 +77,7 @@ export default function Landing({ onEnter }: Props) {
               <h3 className="landing-feature__title">Enruta lo que necesita un humano</h3>
               <p className="landing-feature__desc">
                 Identifica el área correcta por el contenido del mensaje, sin importar
-                a qué buzón llegó el correo. Soporte, finanzas, matrícula — el LLM
+                a qué buzón llegó el correo. Soporte, finanzas, matrícula: el LLM
                 entiende la intención, no solo las palabras clave.
               </p>
               <div className="landing-feature__chip">
@@ -157,8 +117,8 @@ export default function Landing({ onEnter }: Props) {
             <span className="mono" style={{ color: 'var(--text)', background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 4 }}>"me quedé fuera del proceso de inscripción"</span>.
             Un LLM entiende la{' '}
             <strong style={{ color: 'var(--text)', fontWeight: 600 }}>intención</strong> detrás del texto.
-            Cualquier variación lingüística, jerga o error tipográfico — el resultado
-            es el mismo veredicto correcto.
+            Cualquier variación lingüística, jerga o error tipográfico produce
+            el mismo veredicto correcto.
           </p>
         </div>
       </section>
@@ -170,8 +130,8 @@ export default function Landing({ onEnter }: Props) {
           <h2 className="landing-section__title">Menos tiempo de respuesta.<br />Cero consultas perdidas.</h2>
           <div className="landing-impact">
             {[
-              { icon: <Zap size={14} style={{ color: 'var(--accent)' }} />, text: 'Respuesta inmediata en consultas con respuesta documentada — sin esperar a que un humano lo vea.' },
-              { icon: <Check size={14} style={{ color: 'var(--accent)' }} />, text: 'Cero consultas perdidas por mal direccionamiento — el área correcta las recibe siempre.' },
+              { icon: <Zap size={14} style={{ color: 'var(--accent)' }} />, text: 'Respuesta inmediata en consultas con respuesta documentada, sin esperar a que un humano lo vea.' },
+              { icon: <Check size={14} style={{ color: 'var(--accent)' }} />, text: 'Cero consultas perdidas por mal direccionamiento. El área correcta las recibe siempre.' },
               { icon: <Users size={14} style={{ color: 'var(--accent)' }} />, text: 'Personal enfocado solo en lo que requiere criterio humano real.' },
             ].map((item, i) => (
               <div key={i} className="landing-impact__item">
@@ -189,7 +149,7 @@ export default function Landing({ onEnter }: Props) {
           <div className="landing-section__eyebrow">Multi-tenant · Agnóstico al dominio</div>
           <h2 className="landing-section__title">El mismo sistema. Cualquier organización.</h2>
           <p style={{ color: 'var(--muted)', lineHeight: 1.8, fontSize: 14, textWrap: 'pretty' }}>
-            El mismo sistema sirve para una universidad y un banco — y opera ambos
+            El mismo sistema sirve para una universidad y un banco, y opera ambos
             en paralelo, aislados. Solo cambian los documentos de la base de
             conocimiento y las áreas de enrutamiento. La arquitectura es la misma.
             Agregar un nuevo tenant es cuestión de configuración, no de código.

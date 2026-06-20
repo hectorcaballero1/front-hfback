@@ -1,29 +1,29 @@
 import { useState } from 'react';
 import { TenantProvider } from './context/TenantContext';
+import { IngestaProvider } from './context/IngestaContext';
 import Layout from './components/layout/Layout';
-import EnVivo from './components/views/EnVivo';
-import Procesados from './components/views/Procesados';
-import Bandeja from './components/views/Bandeja';
+import Ingesta from './components/views/Ingesta';
+import Consultas from './components/views/Consultas';
 import Corpus from './components/views/Corpus';
 import Landing from './components/views/Landing';
 import type { View } from './types';
 
 export default function App() {
   const [view, setView] = useState<View>('landing');
-  const [pollingStatus, setPollingStatus] = useState<'idle' | 'polling' | 'error'>('idle');
 
   if (view === 'landing') {
-    return <Landing onEnter={() => setView('envivo')} />;
+    return <Landing onEnter={() => setView('ingesta')} />;
   }
 
   return (
     <TenantProvider>
-      <Layout view={view} setView={setView} pollingStatus={pollingStatus}>
-        {view === 'envivo'     && <EnVivo onPollingStatus={setPollingStatus} />}
-        {view === 'bandeja'    && <Bandeja />}
-        {view === 'corpus'     && <Corpus />}
-        {view === 'procesados' && <Procesados />}
-      </Layout>
+      <IngestaProvider>
+        <Layout view={view} setView={setView}>
+          {view === 'ingesta'   && <Ingesta />}
+          {view === 'consultas' && <Consultas />}
+          {view === 'corpus'    && <Corpus />}
+        </Layout>
+      </IngestaProvider>
     </TenantProvider>
   );
 }
